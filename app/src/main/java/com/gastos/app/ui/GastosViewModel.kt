@@ -15,6 +15,7 @@ import com.gastos.app.data.Cuenta
 import com.gastos.app.data.FirestoreRepository
 import com.gastos.app.data.Gasto
 import com.gastos.app.data.PagoFijo
+import com.gastos.app.data.InfoActualizacion
 import com.google.android.gms.auth.api.signin.GoogleSignIn
 import com.google.android.gms.auth.api.signin.GoogleSignInAccount
 import com.google.android.gms.auth.api.signin.GoogleSignInOptions
@@ -85,6 +86,16 @@ data class MensajeChat(
     val esUsuario: Boolean,
     val fecha: Long = System.currentTimeMillis()
 )
+
+sealed class EstadoActualizacion {
+    object Inactivo : EstadoActualizacion()
+    object Comprobando : EstadoActualizacion()
+    object AlDia : EstadoActualizacion()
+    data class Disponible(val info: InfoActualizacion) : EstadoActualizacion()
+    data class Descargando(val progreso: Float, val info: InfoActualizacion) : EstadoActualizacion()
+    data class ListoParaInstalar(val archivo: File, val info: InfoActualizacion) : EstadoActualizacion()
+    data class Error(val mensaje: String) : EstadoActualizacion()
+}
 
 data class IngresoProgramado(
     val id: String = java.util.UUID.randomUUID().toString(),
@@ -186,6 +197,9 @@ class GastosViewModel(application: Application) : AndroidViewModel(application) 
     // Estados de UI y Mensajes
     private val _mensaje = MutableStateFlow<String?>(null)
     val mensaje = _mensaje.asStateFlow()
+
+    private val _estadoActualizacion = MutableStateFlow<EstadoActualizacion>(EstadoActualizacion.Inactivo)
+    val estadoActualizacion: StateFlow<EstadoActualizacion> = _estadoActualizacion.asStateFlow()
 
     private val _ocupado = MutableStateFlow(false)
     val ocupado = _ocupado.asStateFlow()
@@ -2207,6 +2221,104 @@ class GastosViewModel(application: Application) : AndroidViewModel(application) 
                 rawErr
             }
             throw Exception(cleanMsg)
+        }
+    }
+
+    // === GESTIÓN DE ACTUALIZACIONES IN-APP ===
+    fun cerrarModalActualizacion() {
+        _estadoActualizacion.value = EstadoActualizacion.Inactivo
+    }
+
+    fun buscarActualizaciones(versionCodeActual: Long, esManual: Boolean = true) {
+        viewModelScope.launch {
+            _estadoActualizacion.value = EstadoActualizacion.Comprobando
+            val info = FirestoreRepository.verificarActualizacion(versionCodeActual)
+            if (info.hayActualizacion) {
+                _estadoActualizacion.value = EstadoActualizacion.Disponible(info)
+            } else {
+                _estadoActualizacion.value = if (esManual) EstadoActualizacion.AlDia else EstadoActualizacion.Inactivo
+                if (esManual) {
+                    _mensaje.value = "¡Ya tienes instalada la versión más reciente!"
+                }
+            }
+        }
+    }
+
+    fun descargarEInstalarApk(context: Context, info: InfoActualizacion) {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                _estadoActualizacion.value = EstadoActualizacion.Descargando(0f, info)
+                val updatesDir = File(context.cacheDir, "updates")
+                if (!updatesDir.exists()) updatesDir.mkdirs()
+                val apkFile = File(updatesDir, "MisGastos_update.apk")
+                if (apkFile.exists()) apkFile.delete()
+
+                val url = URL(info.apkUrl)
+                var currentConnection = (url.openConnection() as HttpURLConnection).apply {
+                    connectTimeout = 15000
+                    readTimeout = 30000
+                    instanceFollowRedirects = true
+                    connect()
+                }
+
+                // Manejo de redirecciones HTTP (301, 302, 303, 307, 308)
+                var redirectCount = 0
+                while (currentConnection.responseCode in listOf(301, 302, 303, 307, 308) && redirectCount < 5) {
+                    val newUrl = currentConnection.getHeaderField("Location") ?: break
+                    currentConnection.disconnect()
+                    currentConnection = (URL(newUrl).openConnection() as HttpURLConnection).apply {
+                        connectTimeout = 15000
+                        readTimeout = 30000
+                        instanceFollowRedirects = true
+                        connect()
+                    }
+                    redirectCount++
+                }
+
+                val contentLength = currentConnection.contentLengthLong
+                var bytesDownloaded = 0L
+
+                currentConnection.inputStream.use { input ->
+                    apkFile.outputStream().use { output ->
+                        val buffer = ByteArray(8192)
+                        var bytesRead: Int
+                        while (input.read(buffer).also { bytesRead = it } != -1) {
+                            output.write(buffer, 0, bytesRead)
+                            bytesDownloaded += bytesRead
+                            if (contentLength > 0) {
+                                val progress = (bytesDownloaded.toFloat() / contentLength.toFloat()).coerceIn(0f, 1f)
+                                _estadoActualizacion.value = EstadoActualizacion.Descargando(progress, info)
+                            }
+                        }
+                    }
+                }
+                currentConnection.disconnect()
+
+                _estadoActualizacion.value = EstadoActualizacion.ListoParaInstalar(apkFile, info)
+                withContext(Dispatchers.Main) {
+                    ejecutarInstalacion(context, apkFile)
+                }
+            } catch (e: Exception) {
+                _estadoActualizacion.value = EstadoActualizacion.Error("Error al descargar: ${e.message}")
+            }
+        }
+    }
+
+    fun ejecutarInstalacion(context: Context, apkFile: File) {
+        try {
+            val uri = FileProvider.getUriForFile(
+                context,
+                "${context.packageName}.fileprovider",
+                apkFile
+            )
+            val intent = Intent(Intent.ACTION_VIEW).apply {
+                setDataAndType(uri, "application/vnd.android.package-archive")
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            context.startActivity(intent)
+        } catch (e: Exception) {
+            _mensaje.value = "Error al abrir instalador: ${e.message}"
         }
     }
 }

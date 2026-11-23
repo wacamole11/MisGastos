@@ -243,4 +243,40 @@ object FirestoreRepository {
     suspend fun eliminarPagoFijo(id: String) {
         obtenerPagosFijosRef().document(id).delete().await()
     }
+
+    // === CONTROL DE ACTUALIZACIONES (APP CONFIG) ===
+    suspend fun verificarActualizacion(versionCodeLocal: Long): InfoActualizacion {
+        return try {
+            val doc = db.collection("app_config").document("version").get().await()
+            if (doc != null && doc.exists()) {
+                val codeRemoto = doc.getLong("versionCode") ?: 0L
+                val nameRemoto = doc.getString("versionName") ?: "1.0"
+                val url = doc.getString("apkUrl") ?: doc.getString("urlApk") ?: ""
+                val novedades = doc.getString("novedades") ?: ""
+                val obligatoria = doc.getBoolean("esObligatoria") ?: false
+
+                InfoActualizacion(
+                    hayActualizacion = codeRemoto > versionCodeLocal && url.isNotBlank(),
+                    versionRemota = nameRemoto,
+                    versionCodeRemoto = codeRemoto,
+                    apkUrl = url,
+                    novedades = novedades,
+                    esObligatoria = obligatoria
+                )
+            } else {
+                InfoActualizacion(hayActualizacion = false)
+            }
+        } catch (_: Exception) {
+            InfoActualizacion(hayActualizacion = false)
+        }
+    }
 }
+
+data class InfoActualizacion(
+    val hayActualizacion: Boolean = false,
+    val versionRemota: String = "",
+    val versionCodeRemoto: Long = 0L,
+    val apkUrl: String = "",
+    val novedades: String = "",
+    val esObligatoria: Boolean = false
+)

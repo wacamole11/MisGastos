@@ -58,6 +58,7 @@ import com.gastos.app.ui.BotonRapido
 import com.gastos.app.ui.GastosViewModel
 import com.gastos.app.ui.IngresoProgramado
 import com.gastos.app.ui.DeudaPrestamo
+import com.gastos.app.ui.EstadoActualizacion
 import com.gastos.app.ui.MensajeChat
 import com.gastos.app.ui.MovimientoDetectado
 import com.gastos.app.ui.theme.MisGastosTheme
@@ -7100,6 +7101,66 @@ fun SettingsScreen(
                                 modifier = Modifier.size(16.dp)
                             )
                         }
+
+                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+
+                        // Fila Buscar actualizaciones
+                        val estadoActualizacion by viewModel.estadoActualizacion.collectAsState()
+                        val context = LocalContext.current
+                        val pInfo = remember {
+                            try {
+                                context.packageManager.getPackageInfo(context.packageName, 0)
+                            } catch (_: Exception) { null }
+                        }
+                        val vCode = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
+                            pInfo?.longVersionCode ?: 1L
+                        } else {
+                            @Suppress("DEPRECATION")
+                            pInfo?.versionCode?.toLong() ?: 1L
+                        }
+                        val vName = pInfo?.versionName ?: "1.0"
+
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { viewModel.buscarActualizaciones(vCode, esManual = true) }
+                                .padding(vertical = 12.dp, horizontal = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.CloudDownload,
+                                contentDescription = null,
+                                tint = Color(0xFF38BDF8),
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Spacer(modifier = Modifier.width(14.dp))
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = "Buscar actualizaciones",
+                                    fontWeight = FontWeight.SemiBold,
+                                    style = MaterialTheme.typography.bodyMedium
+                                )
+                                Text(
+                                    text = "Versión instalada: v$vName (Compilación $vCode)",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                            if (estadoActualizacion is EstadoActualizacion.Comprobando) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(18.dp),
+                                    strokeWidth = 2.dp,
+                                    color = Color(0xFF38BDF8)
+                                )
+                            } else {
+                                Icon(
+                                    imageVector = Icons.AutoMirrored.Filled.ArrowForwardIos,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                                    modifier = Modifier.size(16.dp)
+                                )
+                            }
+                        }
                     }
                 }
                 Spacer(modifier = Modifier.height(24.dp))
@@ -7123,14 +7184,194 @@ fun SettingsScreen(
                 }
 
                 Spacer(modifier = Modifier.height(28.dp))
+                val context = LocalContext.current
+                val vNameFooter = remember {
+                    try { context.packageManager.getPackageInfo(context.packageName, 0).versionName ?: "1.0" }
+                    catch (_: Exception) { "1.0" }
+                }
                 Text(
-                    text = "MisGastos AI · v1.0",
+                    text = "MisGastos AI · v$vNameFooter",
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
                     modifier = Modifier.fillMaxWidth(),
                     textAlign = TextAlign.Center
                 )
             }
+        }
+
+        // Diálogos de Actualización
+        val estadoAct by viewModel.estadoActualizacion.collectAsState()
+        val context = LocalContext.current
+        val pInfoDialog = remember {
+            try { context.packageManager.getPackageInfo(context.packageName, 0) } catch (_: Exception) { null }
+        }
+        val vNameDialog = pInfoDialog?.versionName ?: "1.0"
+
+        when (val estado = estadoAct) {
+            is EstadoActualizacion.Disponible -> {
+                AlertDialog(
+                    onDismissRequest = {
+                        if (!estado.info.esObligatoria) viewModel.cerrarModalActualizacion()
+                    },
+                    title = {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                Icons.Default.CloudDownload,
+                                contentDescription = null,
+                                tint = Color(0xFF38BDF8),
+                                modifier = Modifier.size(24.dp)
+                            )
+                            Spacer(Modifier.width(8.dp))
+                            Text(
+                                "¡Nueva versión disponible!",
+                                fontWeight = FontWeight.Bold,
+                                style = MaterialTheme.typography.titleLarge
+                            )
+                        }
+                    },
+                    text = {
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                color = Color(0xFF0F253E),
+                                border = BorderStroke(1.dp, Color(0xFF1D4A77))
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        "Versión ${estado.info.versionRemota} disponible",
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color(0xFF76D1FF),
+                                        fontSize = 12.sp
+                                    )
+                                    Spacer(Modifier.width(6.dp))
+                                    Text(
+                                        "(Actual: v$vNameDialog)",
+                                        color = Color(0xFF8E9FB8),
+                                        fontSize = 11.sp
+                                    )
+                                }
+                            }
+
+                            if (estado.info.novedades.isNotBlank()) {
+                                Text(
+                                    "Novedades:",
+                                    fontWeight = FontWeight.Bold,
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = Color.White
+                                )
+                                Text(
+                                    estado.info.novedades,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = Color(0xFFCBD5E1)
+                                )
+                            }
+
+                            Text(
+                                "Al presionar actualizar, se descargará el instalador. Tus datos, cuentas y registros permanecerán intactos.",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = Color(0xFF8E9FB8),
+                                fontSize = 11.sp
+                            )
+                        }
+                    },
+                    confirmButton = {
+                        Button(
+                            onClick = { viewModel.descargarEInstalarApk(context, estado.info) },
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0284C7)),
+                            shape = RoundedCornerShape(10.dp)
+                        ) {
+                            Icon(Icons.Default.Download, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(Modifier.width(6.dp))
+                            Text("Actualizar ahora", fontWeight = FontWeight.Bold)
+                        }
+                    },
+                    dismissButton = {
+                        if (!estado.info.esObligatoria) {
+                            TextButton(onClick = { viewModel.cerrarModalActualizacion() }) {
+                                Text("Más tarde")
+                            }
+                        }
+                    }
+                )
+            }
+            is EstadoActualizacion.Descargando -> {
+                AlertDialog(
+                    onDismissRequest = {},
+                    title = {
+                        Text("Descargando actualización...", fontWeight = FontWeight.Bold)
+                    },
+                    text = {
+                        Column(
+                            verticalArrangement = Arrangement.spacedBy(10.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            LinearProgressIndicator(
+                                progress = { estado.progreso },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(8.dp)
+                                    .clip(RoundedCornerShape(50)),
+                                color = Color(0xFF38BDF8),
+                                trackColor = Color(0xFF1E293B)
+                            )
+                            Text(
+                                "${(estado.progreso * 100).toInt()}% descargado",
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFF76D1FF)
+                            )
+                            Text(
+                                "Por favor espera un momento mientras se descarga el archivo de instalación.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = Color(0xFF8E9FB8),
+                                textAlign = TextAlign.Center
+                            )
+                        }
+                    },
+                    confirmButton = {}
+                )
+            }
+            is EstadoActualizacion.ListoParaInstalar -> {
+                AlertDialog(
+                    onDismissRequest = { viewModel.cerrarModalActualizacion() },
+                    title = { Text("Descarga completada", fontWeight = FontWeight.Bold) },
+                    text = {
+                        Text(
+                            "El instalador está listo. Toca 'Instalar ahora' para actualizar la app.",
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+                    },
+                    confirmButton = {
+                        Button(
+                            onClick = { viewModel.ejecutarInstalacion(context, estado.archivo) },
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF22C55E))
+                        ) {
+                            Text("Instalar ahora", fontWeight = FontWeight.Bold)
+                        }
+                    },
+                    dismissButton = {
+                        TextButton(onClick = { viewModel.cerrarModalActualizacion() }) {
+                            Text("Cerrar")
+                        }
+                    }
+                )
+            }
+            is EstadoActualizacion.Error -> {
+                AlertDialog(
+                    onDismissRequest = { viewModel.cerrarModalActualizacion() },
+                    title = { Text("Error al actualizar", fontWeight = FontWeight.Bold, color = Color(0xFFF87171)) },
+                    text = { Text(estado.mensaje) },
+                    confirmButton = {
+                        Button(onClick = { viewModel.cerrarModalActualizacion() }) {
+                            Text("Entendido")
+                        }
+                    }
+                )
+            }
+            else -> {}
         }
     }
 }
