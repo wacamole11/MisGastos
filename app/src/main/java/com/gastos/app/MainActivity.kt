@@ -1188,21 +1188,6 @@ fun MainTabsScreen(
                     colors = navItemColors
                 )
             }
-        },
-        floatingActionButton = {
-            FloatingActionButton(
-                onClick = onOpenManualEntry,
-                containerColor = Color(0xFF76D1FF),
-                contentColor = Color(0xFF0F1A2A),
-                shape = RoundedCornerShape(18.dp)
-            ) {
-                Icon(
-                    Icons.Default.Add,
-                    contentDescription = "Agregar Gasto Rápido",
-                    modifier = Modifier.size(30.dp),
-                    tint = Color(0xFF0F1A2A)
-                )
-            }
         }
     ) { padding ->
         Column(modifier = Modifier.padding(padding).fillMaxSize()) {
