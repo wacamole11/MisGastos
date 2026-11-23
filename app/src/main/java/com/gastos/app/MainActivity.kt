@@ -1261,6 +1261,32 @@ fun HomeScreen(
     val mesIndexHoy = calHoy.get(Calendar.MONTH)
     val diasEnMes = calHoy.getActualMaximum(Calendar.DAY_OF_MONTH)
 
+    val inicioHoy = remember(diaHoy, mesIndexHoy, anioHoy) {
+        Calendar.getInstance().apply {
+            set(Calendar.YEAR, anioHoy)
+            set(Calendar.MONTH, mesIndexHoy)
+            set(Calendar.DAY_OF_MONTH, diaHoy)
+            set(Calendar.HOUR_OF_DAY, 0)
+            set(Calendar.MINUTE, 0)
+            set(Calendar.SECOND, 0)
+            set(Calendar.MILLISECOND, 0)
+        }.timeInMillis
+    }
+    val finHoy = remember(diaHoy, mesIndexHoy, anioHoy) {
+        Calendar.getInstance().apply {
+            set(Calendar.YEAR, anioHoy)
+            set(Calendar.MONTH, mesIndexHoy)
+            set(Calendar.DAY_OF_MONTH, diaHoy)
+            set(Calendar.HOUR_OF_DAY, 23)
+            set(Calendar.MINUTE, 59)
+            set(Calendar.SECOND, 59)
+            set(Calendar.MILLISECOND, 999)
+        }.timeInMillis
+    }
+    val ultimos = remember(gastos, inicioHoy, finHoy) {
+        gastos.filter { !it.esTransferencia && it.fecha in inicioHoy..finHoy }
+    }
+
     val proximoCobroInfo = remember(ingresosProgramados, diaHoy, mesIndexHoy, anioHoy) {
         val pendientesConDia = mutableListOf<Pair<Int, String>>()
         for (ing in ingresosProgramados) {
@@ -1614,7 +1640,7 @@ fun HomeScreen(
             Spacer(modifier = Modifier.height(14.dp))
         }
 
-        // ── 3. ENCABEZADO "ÚLTIMOS MOVIMIENTOS" ───────────────────────────
+        // ── 3. ENCABEZADO "GASTOS DE HOY" ────────────────────────────────────
         item {
             Row(
                 modifier = Modifier
@@ -1624,32 +1650,58 @@ fun HomeScreen(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Column {
-                    Text(
-                        "Últimos",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onBackground
-                    )
-                    Text(
-                        "Movimientos",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onBackground
-                    )
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            "Gastos de Hoy",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onBackground
+                        )
+                        if (ultimos.isNotEmpty()) {
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Surface(
+                                shape = CircleShape,
+                                color = Color(0xFF1E2E48),
+                                modifier = Modifier.padding(top = 1.dp)
+                            ) {
+                                Text(
+                                    text = "${ultimos.size}",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = Color(0xFF76D1FF),
+                                    fontWeight = FontWeight.Bold,
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 1.dp)
+                                )
+                            }
+                        }
+                    }
+                    val totalGastadoHoy = ultimos.filter { !it.esIngreso }.sumOf { it.montoRealUsuario }
+                    if (ultimos.isNotEmpty()) {
+                        Text(
+                            text = "Total gastado hoy: -${format.format(totalGastadoHoy)}",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = Color(0xFFFF8DA1),
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    } else {
+                        Text(
+                            text = "Solo movimientos de la fecha actual",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = Color(0xFF8294A8)
+                        )
+                    }
                 }
                 TextButton(onClick = onOpenHistory) {
                     Column(horizontalAlignment = Alignment.End) {
                         Text(
-                            "Ver",
+                            "Ver Historial",
                             style = MaterialTheme.typography.labelMedium,
                             fontWeight = FontWeight.Bold,
                             color = Color(0xFF38BDF8)
                         )
                         Text(
-                            "Todos",
-                            style = MaterialTheme.typography.labelMedium,
-                            fontWeight = FontWeight.Bold,
-                            color = Color(0xFF38BDF8)
+                            "Completo",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = Color(0xFF8294A8)
                         )
                     }
                 }
@@ -1657,7 +1709,6 @@ fun HomeScreen(
             Spacer(modifier = Modifier.height(4.dp))
         }
 
-        val ultimos = gastos.filter { !it.esTransferencia }.take(10)
         if (ultimos.isEmpty()) {
             item {
                 Surface(
@@ -1666,7 +1717,7 @@ fun HomeScreen(
                     color = Color(0xFF131F33).copy(alpha = 0.5f)
                 ) {
                     Text(
-                        "Aún no tienes movimientos registrados hoy.",
+                        "Aún no tienes gastos registrados hoy.\nPresiona \"Ver Historial\" para consultar días anteriores.",
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         style = MaterialTheme.typography.bodySmall,
                         modifier = Modifier.padding(16.dp),
@@ -1720,8 +1771,8 @@ fun HomeScreen(
                                 fontWeight = FontWeight.Bold,
                                 color = MaterialTheme.colorScheme.onSurface
                             )
-                            val horaFecha = SimpleDateFormat("HH:mm • dd MMM", Locale("es", "PE")).format(Date(g.fecha)).lowercase()
-                            val subtitulo = if (g.nota.isNotBlank()) "$horaFecha • ${g.nota}" else horaFecha
+                            val horaStr = SimpleDateFormat("HH:mm", Locale("es", "PE")).format(Date(g.fecha))
+                            val subtitulo = if (g.nota.isNotBlank()) "Hoy $horaStr • ${g.nota}" else "Hoy $horaStr"
                             Text(
                                 subtitulo,
                                 style = MaterialTheme.typography.bodySmall,
