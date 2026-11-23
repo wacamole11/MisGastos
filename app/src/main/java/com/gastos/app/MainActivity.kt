@@ -83,10 +83,12 @@ sealed class AppScreen {
 
 class MainActivity : FragmentActivity() {
     private val viewModel: GastosViewModel by viewModels()
+    private val accionWidget = mutableStateOf<String?>(null)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         procesarIntentCompartir(intent)
+        procesarIntentWidget(intent)
 
         setContent {
             val modoTema by viewModel.modoTema.collectAsState()
@@ -109,6 +111,8 @@ class MainActivity : FragmentActivity() {
                     AppNavHost(
                         viewModel = viewModel,
                         activity = this@MainActivity,
+                        accionWidget = accionWidget.value,
+                        onConsumirAccionWidget = { accionWidget.value = null },
                         onExportar = { startActivity(it) }
                     )
                 }
@@ -120,6 +124,15 @@ class MainActivity : FragmentActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
         procesarIntentCompartir(intent)
+        procesarIntentWidget(intent)
+    }
+
+    private fun procesarIntentWidget(intent: Intent?) {
+        val action = intent?.action
+        if (action == com.gastos.app.widget.AccesoRapidoWidgetProvider.ACTION_NUEVO_CONSUMO ||
+            action == com.gastos.app.widget.AccesoRapidoWidgetProvider.ACTION_VOZ) {
+            accionWidget.value = action
+        }
     }
 
     private fun procesarIntentCompartir(intent: Intent?) {
@@ -140,6 +153,8 @@ class MainActivity : FragmentActivity() {
 fun AppNavHost(
     viewModel: GastosViewModel,
     activity: FragmentActivity,
+    accionWidget: String? = null,
+    onConsumirAccionWidget: () -> Unit = {},
     onExportar: (Intent) -> Unit
 ) {
     var currentScreen by remember { mutableStateOf<AppScreen>(AppScreen.Splash) }
@@ -156,6 +171,38 @@ fun AppNavHost(
     // Hojas Emergentes (Modal Bottom Sheets)
     val movimientosDetectados by viewModel.movimientosDetectados.collectAsState()
     var showManualEntrySheet by remember { mutableStateOf(false) }
+
+    val voiceLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode == Activity.RESULT_OK && result.data != null) {
+            val spokenText = result.data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)?.firstOrNull()
+            if (!spokenText.isNullOrBlank()) {
+                viewModel.procesarTextoInteligente(spokenText)
+            }
+        }
+    }
+
+    LaunchedEffect(currentScreen, accionWidget) {
+        if (currentScreen is AppScreen.Main && accionWidget != null) {
+            when (accionWidget) {
+                com.gastos.app.widget.AccesoRapidoWidgetProvider.ACTION_NUEVO_CONSUMO -> {
+                    showManualEntrySheet = true
+                    onConsumirAccionWidget()
+                }
+                com.gastos.app.widget.AccesoRapidoWidgetProvider.ACTION_VOZ -> {
+                    val intentVoz = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+                        putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+                        putExtra(RecognizerIntent.EXTRA_LANGUAGE, "es-PE")
+                    }
+                    try {
+                        voiceLauncher.launch(intentVoz)
+                    } catch (_: Exception) {}
+                    onConsumirAccionWidget()
+                }
+            }
+        }
+    }
 
     when (val screen = currentScreen) {
         // === ETAPA 1: ACCESO Y SEGURIDAD ===

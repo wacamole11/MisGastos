@@ -336,6 +336,14 @@ class GastosViewModel(application: Application) : AndroidViewModel(application) 
             }
         }
 
+        viewModelScope.launch {
+            combine(gastos, cuentas, pagosFijos) { _, _, _ -> }.collect {
+                try {
+                    com.gastos.app.widget.AccesoRapidoWidgetProvider.actualizarWidgets(application)
+                } catch (_: Exception) {}
+            }
+        }
+
         val currentUser = FirebaseAuth.getInstance().currentUser
         val lastAccount = GoogleSignIn.getLastSignedInAccount(application)
         if (currentUser != null || lastAccount != null) {
