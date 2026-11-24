@@ -2237,14 +2237,18 @@ class GastosViewModel(application: Application) : AndroidViewModel(application) 
         _estadoActualizacion.value = EstadoActualizacion.Inactivo
     }
 
-    fun buscarActualizaciones(versionCodeActual: Long, esManual: Boolean = true) {
+    fun buscarActualizaciones(
+        versionCodeActual: Long,
+        versionNameActual: String = "1.0",
+        esManual: Boolean = true
+    ) {
         viewModelScope.launch {
             _estadoActualizacion.value = EstadoActualizacion.Comprobando
-            val info = FirestoreRepository.verificarActualizacion(versionCodeActual)
+            val info = FirestoreRepository.verificarActualizacion(versionCodeActual, versionNameActual)
             if (info.hayActualizacion) {
                 _estadoActualizacion.value = EstadoActualizacion.Disponible(info)
             } else if (info.error != null) {
-                _estadoActualizacion.value = EstadoActualizacion.Error("Error al consultar Firebase: ${info.error}")
+                _estadoActualizacion.value = EstadoActualizacion.Error("Error al consultar actualizaciones: ${info.error}")
             } else {
                 _estadoActualizacion.value = if (esManual) EstadoActualizacion.AlDia(info) else EstadoActualizacion.Inactivo
             }

@@ -7514,7 +7514,7 @@ fun SettingsScreen(
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .clickable { viewModel.buscarActualizaciones(vCode, esManual = true) }
+                                .clickable { viewModel.buscarActualizaciones(vCode, vName, esManual = true) }
                                 .padding(vertical = 12.dp, horizontal = 4.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
@@ -7638,7 +7638,7 @@ fun SettingsScreen(
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
                                     Text(
-                                        "Versión ${estado.info.versionRemota} disponible",
+                                        "Versión ${estado.info.versionRemota} disponible (${estado.info.origen})",
                                         fontWeight = FontWeight.Bold,
                                         color = Color(0xFF76D1FF),
                                         fontSize = 12.sp
@@ -7787,7 +7787,7 @@ fun SettingsScreen(
                             )
                             if (!estado.info.documentoExiste) {
                                 Text(
-                                    text = "Aún no has creado el documento 'version' en la colección 'app_config' de Firestore. Cuando publiques una nueva versión en Firebase, aquí aparecerá para actualizarla con 1 solo clic.",
+                                    text = "Aún no se ha publicado una nueva versión en GitHub Releases ni en Firebase. Cuando publiques una versión (creando un Release en GitHub o documento en Firestore), aquí aparecerá para actualizarla con 1 solo clic.",
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     textAlign = TextAlign.Center

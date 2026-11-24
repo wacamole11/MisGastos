@@ -4,10 +4,15 @@ import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.CollectionReference
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.Query
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.tasks.await
+import kotlinx.coroutines.withContext
+import org.json.JSONObject
+import java.net.HttpURLConnection
+import java.net.URL
 
 object FirestoreRepository {
     private val db by lazy { FirebaseFirestore.getInstance() }
@@ -244,9 +249,13 @@ object FirestoreRepository {
         obtenerPagosFijosRef().document(id).delete().await()
     }
 
-    // === CONTROL DE ACTUALIZACIONES (APP CONFIG) ===
-    suspend fun verificarActualizacion(versionCodeLocal: Long): InfoActualizacion {
-        return try {
+    // === CONTROL DE ACTUALIZACIONES (APP CONFIG & GITHUB RELEASES) ===
+    suspend fun verificarActualizacion(
+        versionCodeLocal: Long,
+        versionNameLocal: String = "1.0"
+    ): InfoActualizacion {
+        // 1. Intentar Firebase Firestore si el usuario configuró app_config/version
+        val infoFirebase: InfoActualizacion? = try {
             val doc = db.collection("app_config").document("version").get().await()
             if (doc != null && doc.exists()) {
                 val codeRemoto = doc.getLong("versionCode") ?: 0L
@@ -262,21 +271,94 @@ object FirestoreRepository {
                     apkUrl = url,
                     novedades = novedades,
                     esObligatoria = obligatoria,
-                    documentoExiste = true
+                    documentoExiste = true,
+                    origen = "Firebase"
                 )
-            } else {
-                InfoActualizacion(
-                    hayActualizacion = false,
-                    documentoExiste = false
-                )
-            }
-        } catch (e: Exception) {
-            InfoActualizacion(
-                hayActualizacion = false,
-                documentoExiste = false,
-                error = e.localizedMessage ?: e.message
-            )
+            } else null
+        } catch (_: Exception) {
+            null
         }
+
+        // Si Firebase reporta que hay actualización disponible, usarla directamente
+        if (infoFirebase != null && infoFirebase.hayActualizacion) {
+            return infoFirebase
+        }
+
+        // 2. Si Firebase no tiene actualización, consultar Releases de GitHub (wacamole11/MisGastos)
+        val infoGitHub = verificarGitHubReleases(versionCodeLocal, versionNameLocal)
+        if (infoGitHub != null && infoGitHub.hayActualizacion) {
+            return infoGitHub
+        }
+
+        // 3. Si ninguno tiene actualización, devolver la info disponible (Firebase primero, luego GitHub)
+        return infoFirebase ?: infoGitHub ?: InfoActualizacion(
+            hayActualizacion = false,
+            documentoExiste = false
+        )
+    }
+
+    private suspend fun verificarGitHubReleases(versionCodeLocal: Long, versionNameLocal: String): InfoActualizacion? =
+        withContext(Dispatchers.IO) {
+            try {
+                val url = URL("https://api.github.com/repos/wacamole11/MisGastos/releases/latest")
+                val conn = (url.openConnection() as HttpURLConnection).apply {
+                    connectTimeout = 8000
+                    readTimeout = 8000
+                    setRequestProperty("Accept", "application/vnd.github.v3+json")
+                    setRequestProperty("User-Agent", "MisGastos-Android-App")
+                }
+                if (conn.responseCode == 200) {
+                    val bodyStr = conn.inputStream.bufferedReader().use { it.readText() }
+                    val json = JSONObject(bodyStr)
+                    val rawTag = json.optString("tag_name", "").trim()
+                    val cleanVersion = rawTag.removePrefix("v").removePrefix("V").trim()
+                    val releaseNotes = json.optString("body", "").trim()
+                    val assets = json.optJSONArray("assets")
+                    var downloadUrl = ""
+
+                    if (assets != null) {
+                        for (i in 0 until assets.length()) {
+                            val asset = assets.getJSONObject(i)
+                            val assetName = asset.optString("name", "")
+                            if (assetName.endsWith(".apk", ignoreCase = true)) {
+                                downloadUrl = asset.optString("browser_download_url", "")
+                                break
+                            }
+                        }
+                    }
+
+                    val esMayor = esVersionMayor(cleanVersion, versionNameLocal)
+                    InfoActualizacion(
+                        hayActualizacion = esMayor && downloadUrl.isNotBlank(),
+                        versionRemota = cleanVersion.ifBlank { rawTag },
+                        versionCodeRemoto = 0L,
+                        apkUrl = downloadUrl,
+                        novedades = releaseNotes,
+                        esObligatoria = false,
+                        documentoExiste = true,
+                        origen = "GitHub"
+                    )
+                } else {
+                    null
+                }
+            } catch (_: Exception) {
+                null
+            }
+        }
+
+    private fun esVersionMayor(remota: String, local: String): Boolean {
+        try {
+            val partesRemota = remota.replace("[^0-9.]".toRegex(), "").split(".").filter { it.isNotBlank() }.map { it.toIntOrNull() ?: 0 }
+            val partesLocal = local.replace("[^0-9.]".toRegex(), "").split(".").filter { it.isNotBlank() }.map { it.toIntOrNull() ?: 0 }
+            val maxLen = maxOf(partesRemota.size, partesLocal.size)
+            for (i in 0 until maxLen) {
+                val r = partesRemota.getOrElse(i) { 0 }
+                val l = partesLocal.getOrElse(i) { 0 }
+                if (r > l) return true
+                if (r < l) return false
+            }
+        } catch (_: Exception) {}
+        return false
     }
 }
 
@@ -288,5 +370,6 @@ data class InfoActualizacion(
     val novedades: String = "",
     val esObligatoria: Boolean = false,
     val documentoExiste: Boolean = true,
-    val error: String? = null
+    val error: String? = null,
+    val origen: String = "Firebase"
 )
