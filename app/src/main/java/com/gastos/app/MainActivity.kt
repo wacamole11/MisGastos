@@ -1,6 +1,7 @@
 package com.gastos.app
 
 import android.app.Activity
+import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
@@ -84,6 +85,7 @@ sealed class AppScreen {
 class MainActivity : FragmentActivity() {
     private val viewModel: GastosViewModel by viewModels()
     private val accionWidget = mutableStateOf<String?>(null)
+    private val categoriaWidget = mutableStateOf<String?>(null)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -112,7 +114,11 @@ class MainActivity : FragmentActivity() {
                         viewModel = viewModel,
                         activity = this@MainActivity,
                         accionWidget = accionWidget.value,
-                        onConsumirAccionWidget = { accionWidget.value = null },
+                        categoriaWidget = categoriaWidget.value,
+                        onConsumirAccionWidget = {
+                            accionWidget.value = null
+                            categoriaWidget.value = null
+                        },
                         onExportar = { startActivity(it) }
                     )
                 }
@@ -131,6 +137,7 @@ class MainActivity : FragmentActivity() {
         val action = intent?.action
         if (action == com.gastos.app.widget.AccesoRapidoWidgetProvider.ACTION_NUEVO_CONSUMO ||
             action == com.gastos.app.widget.AccesoRapidoWidgetProvider.ACTION_VOZ) {
+            categoriaWidget.value = intent.getStringExtra(com.gastos.app.widget.AccesoRapidoWidgetProvider.EXTRA_CATEGORIA)
             accionWidget.value = action
         }
     }
@@ -154,6 +161,7 @@ fun AppNavHost(
     viewModel: GastosViewModel,
     activity: FragmentActivity,
     accionWidget: String? = null,
+    categoriaWidget: String? = null,
     onConsumirAccionWidget: () -> Unit = {},
     onExportar: (Intent) -> Unit
 ) {
@@ -322,6 +330,7 @@ fun AppNavHost(
         val cuentas by viewModel.cuentas.collectAsState()
         ManualEntrySheet(
             cuentas = cuentas,
+            categoriaInicial = categoriaWidget ?: "Comida",
             onGuardar = { monto, cat, nota, esIngreso, cuentaId, porCobrar, deudor ->
                 viewModel.agregar(
                     monto = monto,
@@ -6719,12 +6728,13 @@ fun AiConfirmationSheet(
 @Composable
 fun ManualEntrySheet(
     cuentas: List<Cuenta>,
+    categoriaInicial: String = "Comida",
     onGuardar: (Double, String, String, Boolean, String, Double, String) -> Unit,
     onDismiss: () -> Unit
 ) {
     var montoStr by remember { mutableStateOf("0") }
     var esIngreso by remember { mutableStateOf(false) }
-    var categoria by remember { mutableStateOf("Comida") }
+    var categoria by remember { mutableStateOf(categoriaInicial) }
     var cuentaId by remember { mutableStateOf(cuentas.firstOrNull()?.id ?: "cuenta_bcp_yape") }
     var nota by remember { mutableStateOf("") }
     var dividirGasto by remember { mutableStateOf(false) }
@@ -7376,7 +7386,82 @@ fun SettingsScreen(
 
                         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
 
-                        // 4. Gestionar todos los permisos en Android
+                        // 4. Uso en segundo plano (Batería sin restricciones)
+                        val powerManager = remember(context) { context.getSystemService(Context.POWER_SERVICE) as? android.os.PowerManager }
+                        var sinRestriccionBateria by remember {
+                            mutableStateOf(powerManager?.isIgnoringBatteryOptimizations(context.packageName) == true)
+                        }
+
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    try {
+                                        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) {
+                                            val intent = Intent(android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
+                                                data = Uri.parse("package:${context.packageName}")
+                                            }
+                                            context.startActivity(intent)
+                                        } else {
+                                            Toast.makeText(context, "El sistema no restringe la batería en esta versión", Toast.LENGTH_SHORT).show()
+                                        }
+                                    } catch (_: Exception) {
+                                        try {
+                                            val intent = Intent(android.provider.Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
+                                            context.startActivity(intent)
+                                        } catch (_: Exception) {}
+                                    }
+                                }
+                                .padding(vertical = 10.dp, horizontal = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(36.dp)
+                                    .background(
+                                        if (sinRestriccionBateria) Color(0xFF22C55E).copy(alpha = 0.15f)
+                                        else Color(0xFFF59E0B).copy(alpha = 0.15f),
+                                        CircleShape
+                                    ),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Bolt,
+                                    contentDescription = null,
+                                    tint = if (sinRestriccionBateria) Color(0xFF22C55E) else Color(0xFFF59E0B),
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = "Uso en segundo plano",
+                                    fontWeight = FontWeight.SemiBold,
+                                    style = MaterialTheme.typography.bodyMedium
+                                )
+                                Text(
+                                    text = if (sinRestriccionBateria) "Sin restricciones: el widget y la sincronización funcionan siempre." else "Toca para evitar que el sistema cierre la app o el widget.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                color = if (sinRestriccionBateria) Color(0xFF22C55E).copy(alpha = 0.15f) else Color(0xFFF59E0B).copy(alpha = 0.15f)
+                            ) {
+                                Text(
+                                    text = if (sinRestriccionBateria) "Sin límite ✓" else "Configurar",
+                                    color = if (sinRestriccionBateria) Color(0xFF22C55E) else Color(0xFFF59E0B),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontWeight = FontWeight.Bold,
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                )
+                            }
+                        }
+
+                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+
+                        // 5. Gestionar todos los permisos en Android
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
