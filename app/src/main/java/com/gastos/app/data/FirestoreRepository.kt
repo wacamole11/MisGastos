@@ -261,13 +261,21 @@ object FirestoreRepository {
                     versionCodeRemoto = codeRemoto,
                     apkUrl = url,
                     novedades = novedades,
-                    esObligatoria = obligatoria
+                    esObligatoria = obligatoria,
+                    documentoExiste = true
                 )
             } else {
-                InfoActualizacion(hayActualizacion = false)
+                InfoActualizacion(
+                    hayActualizacion = false,
+                    documentoExiste = false
+                )
             }
-        } catch (_: Exception) {
-            InfoActualizacion(hayActualizacion = false)
+        } catch (e: Exception) {
+            InfoActualizacion(
+                hayActualizacion = false,
+                documentoExiste = false,
+                error = e.localizedMessage ?: e.message
+            )
         }
     }
 }
@@ -278,5 +286,7 @@ data class InfoActualizacion(
     val versionCodeRemoto: Long = 0L,
     val apkUrl: String = "",
     val novedades: String = "",
-    val esObligatoria: Boolean = false
+    val esObligatoria: Boolean = false,
+    val documentoExiste: Boolean = true,
+    val error: String? = null
 )

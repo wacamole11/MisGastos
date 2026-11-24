@@ -90,7 +90,7 @@ data class MensajeChat(
 sealed class EstadoActualizacion {
     object Inactivo : EstadoActualizacion()
     object Comprobando : EstadoActualizacion()
-    object AlDia : EstadoActualizacion()
+    data class AlDia(val info: InfoActualizacion) : EstadoActualizacion()
     data class Disponible(val info: InfoActualizacion) : EstadoActualizacion()
     data class Descargando(val progreso: Float, val info: InfoActualizacion) : EstadoActualizacion()
     data class ListoParaInstalar(val archivo: File, val info: InfoActualizacion) : EstadoActualizacion()
@@ -2243,11 +2243,10 @@ class GastosViewModel(application: Application) : AndroidViewModel(application) 
             val info = FirestoreRepository.verificarActualizacion(versionCodeActual)
             if (info.hayActualizacion) {
                 _estadoActualizacion.value = EstadoActualizacion.Disponible(info)
+            } else if (info.error != null) {
+                _estadoActualizacion.value = EstadoActualizacion.Error("Error al consultar Firebase: ${info.error}")
             } else {
-                _estadoActualizacion.value = if (esManual) EstadoActualizacion.AlDia else EstadoActualizacion.Inactivo
-                if (esManual) {
-                    _mensaje.value = "¡Ya tienes instalada la versión más reciente!"
-                }
+                _estadoActualizacion.value = if (esManual) EstadoActualizacion.AlDia(info) else EstadoActualizacion.Inactivo
             }
         }
     }

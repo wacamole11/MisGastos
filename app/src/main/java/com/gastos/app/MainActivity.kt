@@ -7597,6 +7597,12 @@ fun SettingsScreen(
             try { context.packageManager.getPackageInfo(context.packageName, 0) } catch (_: Exception) { null }
         }
         val vNameDialog = pInfoDialog?.versionName ?: "1.0"
+        val vCodeDialog = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
+            pInfoDialog?.longVersionCode ?: 1L
+        } else {
+            @Suppress("DEPRECATION")
+            pInfoDialog?.versionCode?.toLong() ?: 1L
+        }
 
         when (val estado = estadoAct) {
             is EstadoActualizacion.Disponible -> {
@@ -7746,6 +7752,59 @@ fun SettingsScreen(
                     dismissButton = {
                         TextButton(onClick = { viewModel.cerrarModalActualizacion() }) {
                             Text("Cerrar")
+                        }
+                    }
+                )
+            }
+            is EstadoActualizacion.AlDia -> {
+                AlertDialog(
+                    onDismissRequest = { viewModel.cerrarModalActualizacion() },
+                    icon = {
+                        Icon(
+                            imageVector = Icons.Default.CheckCircle,
+                            contentDescription = null,
+                            tint = Color(0xFF22C55E),
+                            modifier = Modifier.size(36.dp)
+                        )
+                    },
+                    title = {
+                        Text(
+                            text = if (estado.info.documentoExiste) "¡Tienes la versión más reciente!" else "Servicio de actualizaciones listo",
+                            fontWeight = FontWeight.Bold,
+                            textAlign = TextAlign.Center
+                        )
+                    },
+                    text = {
+                        Column(
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Text(
+                                text = "Versión instalada: v$vNameDialog (Compilación $vCodeDialog)",
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.SemiBold,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                            if (!estado.info.documentoExiste) {
+                                Text(
+                                    text = "Aún no has creado el documento 'version' en la colección 'app_config' de Firestore. Cuando publiques una nueva versión en Firebase, aquí aparecerá para actualizarla con 1 solo clic.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    textAlign = TextAlign.Center
+                                )
+                            } else {
+                                Text(
+                                    text = "Tu aplicación se encuentra totalmente al día. No hay nuevas actualizaciones pendientes.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    textAlign = TextAlign.Center
+                                )
+                            }
+                        }
+                    },
+                    confirmButton = {
+                        Button(onClick = { viewModel.cerrarModalActualizacion() }) {
+                            Text("Entendido")
                         }
                     }
                 )
