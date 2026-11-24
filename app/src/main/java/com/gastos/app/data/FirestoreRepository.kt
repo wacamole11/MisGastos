@@ -10,6 +10,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
+import org.json.JSONArray
 import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
@@ -300,7 +301,7 @@ object FirestoreRepository {
     private suspend fun verificarGitHubReleases(versionCodeLocal: Long, versionNameLocal: String): InfoActualizacion? =
         withContext(Dispatchers.IO) {
             try {
-                val url = URL("https://api.github.com/repos/wacamole11/MisGastos/releases/latest")
+                val url = URL("https://api.github.com/repos/wacamole11/MisGastos/releases?per_page=1")
                 val conn = (url.openConnection() as HttpURLConnection).apply {
                     connectTimeout = 8000
                     readTimeout = 8000
@@ -309,9 +310,13 @@ object FirestoreRepository {
                 }
                 if (conn.responseCode == 200) {
                     val bodyStr = conn.inputStream.bufferedReader().use { it.readText() }
-                    val json = JSONObject(bodyStr)
-                    val rawTag = json.optString("tag_name", "").trim()
-                    val cleanVersion = rawTag.removePrefix("v").removePrefix("V").trim()
+                    val releasesArray = JSONArray(bodyStr)
+                    if (releasesArray.length() == 0) return@withContext null
+                    val json = releasesArray.getJSONObject(0)
+                    val releaseName = json.optString("name", "").trim()
+                    val tagName = json.optString("tag_name", "").trim()
+                    val rawVersion = if (releaseName.any { it.isDigit() }) releaseName else tagName
+                    val cleanVersion = rawVersion.removePrefix("v").removePrefix("V").trim()
                     val releaseNotes = json.optString("body", "").trim()
                     val assets = json.optJSONArray("assets")
                     var downloadUrl = ""
@@ -330,7 +335,7 @@ object FirestoreRepository {
                     val esMayor = esVersionMayor(cleanVersion, versionNameLocal)
                     InfoActualizacion(
                         hayActualizacion = esMayor && downloadUrl.isNotBlank(),
-                        versionRemota = cleanVersion.ifBlank { rawTag },
+                        versionRemota = cleanVersion.ifBlank { rawVersion },
                         versionCodeRemoto = 0L,
                         apkUrl = downloadUrl,
                         novedades = releaseNotes,
